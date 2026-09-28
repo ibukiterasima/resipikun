@@ -147,7 +147,7 @@ const ICON_PERSON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const SESSION_KEY='src_session_v1';
 const ADMIN_KEY='src_admin_v1';
 const ADMIN_PASSWORDS=['resipikun','Poteotechanibuki'];
-let DB={ recipes:[], myRecipes:[], saved:[], follows:[], users:{}, currentUser:null, currentUserDocId:null, history:[], isAdmin:false };
+let DB={ recipes:[], myRecipes:[], saved:[], follows:[], users:{}, currentUser:null, currentUserDocId:null, history:[], interests:{}, isAdmin:false };
 let sb=null, onlineMode=false;
 let currentTab='feed', viewedUser=null;
 let pendingCallback=null, pendingEmail=null, editingId=null, tempPhoto=null, tempProfilePhoto=undefined;
@@ -158,7 +158,14 @@ function toast(msg){
   setTimeout(()=>t.classList.remove('show'),2200);
 }
 function chk(res){ if(res.error) throw res.error; return res.data; }
-function errMsg(e){ return e&&e.message?e.message:String(e); }
+function errMsg(e){
+  if(!e) return '不明なエラー';
+  if(typeof e==='string') return e;
+  const parts=[e.message,e.details,e.hint,e.code].filter(Boolean);
+  if(parts.length) return parts.join(' / ');
+  try{ return JSON.stringify(e); }catch(_){ return String(e); }
+}
+window.addEventListener('unhandledrejection',ev=>{ console.error(ev.reason); toast('エラー：'+errMsg(ev.reason)); });
 function photoContent(obj){ return obj && obj.photo ? '<img src="'+obj.photo+'" alt="">' : ICON_DISH; }
 function avatarContent(username){ const u=DB.users[username]; return u && u.photo ? '<img src="'+u.photo+'" alt="">' : ICON_PERSON; }
 
@@ -211,6 +218,10 @@ function applyUserRow(row){
   DB.currentUser=row.username; DB.currentUserDocId=row.id;
   DB.users[row.username]={bio:row.bio||'',photo:row.photo||null,email:row.email};
   DB.saved=row.saved_ids||[]; DB.follows=row.follows||[];
+  const srv=row.interests||{}, merged=Object.assign({},srv), hadLocal=Object.keys(DB.interests).length>0;
+  Object.keys(DB.interests).forEach(t=>{ merged[t]=Math.round(((merged[t]||0)+DB.interests[t])*10)/10; });
+  DB.interests=merged; needRank=true;
+  if(hadLocal) scheduleSaveInterests();
 }
 async function resumeSession(username){
   try{
@@ -289,7 +300,7 @@ async function finishSignup(){
   }catch(e){ console.error(e); toast('登録に失敗しました：'+errMsg(e)); }
 }
 function logout(){
-  DB.currentUser=null; DB.currentUserDocId=null; DB.saved=[]; DB.follows=[]; DB.myRecipes=[];
+  DB.currentUser=null; DB.currentUserDocId=null; DB.saved=[]; DB.follows=[]; DB.myRecipes=[]; DB.interests={}; needRank=true;
   try{ localStorage.removeItem(SESSION_KEY); }catch(e){}
   toast('ログアウトしました'); switchTab('feed');
 }
@@ -346,25 +357,82 @@ function switchTab(tab){
   document.getElementById('mypageView').style.display = tab==='mypage' ? '' : 'none';
   updateAddBtn();
   if(tab==='my') refreshMyRecipes().then(renderMy);
-  if(tab==='feed') loadRecipes();
+  if(tab==='feed'){ needRank=true; loadRecipes(); }
   renderAll();
 }
 
 /* ---------- feed ---------- */
-function scoreRecipe(r){
-  const hits=(r.tags||[]).reduce((s,t)=>s+DB.history.filter(h=>h===t).length,0);
-  return hits*5 + (r.likes||[]).length*2 + (r.created||0)/100000000;
+let needRank=true, feedOrder=[];
+let interestTimer=null, interestWarned=false, lastLearnedQuery='', searchTimer=null;
+function esc(t){ return String(t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+/* あなたへのおすすめ：行動から興味（タグの重み）を学習して並び順に反映 */
+function personalScore(r){
+  let s=0;
+  (r.tags||[]).forEach(t=>{ s+=(DB.interests[t]||0)*3; });
+  if(DB.follows.includes(r.author)) s+=6;
+  if(DB.currentUser && r.author===DB.currentUser) s-=4;
+  s+=(r.likes||[]).length*1.5;
+  const ageDays=Math.max(0,(Date.now()-(r.created||0))/86400000);
+  s+=Math.max(0,1-ageDays/14)*4;
+  return s;
 }
+function searchRelevance(r,q){
+  let s=0;
+  if(r.title.includes(q)) s+=10;
+  if((r.tags||[]).some(t=>t===q)) s+=8; else if((r.tags||[]).some(t=>t.includes(q))) s+=5;
+  if(r.author.includes(q)) s+=3;
+  return s;
+}
+function bumpTags(tags,w){
+  if(!tags||!tags.length) return;
+  Object.keys(DB.interests).forEach(k=>{ DB.interests[k]=Math.round(DB.interests[k]*0.97*100)/100; if(DB.interests[k]<0.3) delete DB.interests[k]; });
+  tags.forEach(t=>{ DB.interests[t]=Math.round(((DB.interests[t]||0)+w)*10)/10; });
+  const keys=Object.keys(DB.interests);
+  if(keys.length>40) keys.sort((a,b)=>DB.interests[b]-DB.interests[a]).slice(40).forEach(k=>delete DB.interests[k]);
+  scheduleSaveInterests();
+}
+function scheduleSaveInterests(){ clearTimeout(interestTimer); interestTimer=setTimeout(saveInterests,2000); }
+async function saveInterests(){
+  if(!onlineMode || !DB.currentUserDocId) return;
+  try{ chk(await sb.from('users').update({interests:DB.interests}).eq('id',DB.currentUserDocId)); }
+  catch(e){ console.warn(e); if(!interestWarned){ interestWarned=true; toast('おすすめの学習結果を保存するには、追加のSQL設定が必要です'); } }
+}
+function learnFromSearch(q){
+  q=q.trim();
+  if(!q || q===lastLearnedQuery || !DB.currentUser) return;
+  lastLearnedQuery=q;
+  const tagHits=new Set(), titleTags=new Set();
+  DB.recipes.forEach(r=>(r.tags||[]).forEach(t=>{ if(t.includes(q)||q.includes(t)) tagHits.add(t); }));
+  DB.recipes.filter(r=>r.title.includes(q)).slice(0,5).forEach(r=>(r.tags||[]).forEach(t=>titleTags.add(t)));
+  bumpTags([...tagHits],1.5);
+  bumpTags([...titleTags].filter(t=>!tagHits.has(t)),0.7);
+}
+function interestBanner(q){
+  if(q || !DB.currentUser) return '';
+  const top=Object.keys(DB.interests).sort((a,b)=>DB.interests[b]-DB.interests[a]).slice(0,3);
+  if(!top.length) return '';
+  return '<div style="padding:14px 0 0;font-size:12.5px;color:var(--ink-soft)">あなたへのおすすめ：'+
+    top.map(t=>'<span class="tag" style="cursor:pointer;margin-left:4px" onclick="searchTag(decodeURIComponent(\''+encodeURIComponent(t)+'\'))">'+esc(t)+'</span>').join('')+'</div>';
+}
+function searchTag(t){ const i=document.getElementById('searchInput'); i.value=t; i.dispatchEvent(new Event('input')); }
 function renderFeed(){
   const q=(document.getElementById('searchInput').value||'').trim();
-  let list=DB.recipes.slice();
-  if(q) list=list.filter(r=> r.title.includes(q) || (r.tags||[]).some(t=>t.includes(q)) || r.author.includes(q));
-  list.sort((a,b)=>scoreRecipe(b)-scoreRecipe(a));
+  let list;
+  if(q){
+    list=DB.recipes.filter(r=> r.title.includes(q) || (r.tags||[]).some(t=>t.includes(q)) || r.author.includes(q))
+      .map(r=>({r,s:searchRelevance(r,q)*2+personalScore(r)*0.5})).sort((a,b)=>b.s-a.s).map(x=>x.r);
+  } else {
+    if(needRank || !feedOrder.length){ feedOrder=DB.recipes.slice().sort((a,b)=>personalScore(b)-personalScore(a)).map(r=>r.id); needRank=false; }
+    const byId={}; DB.recipes.forEach(r=>{ byId[r.id]=r; });
+    const known=feedOrder.filter(id=>byId[id]).map(id=>byId[id]);
+    const seen=new Set(feedOrder);
+    list=DB.recipes.filter(r=>!seen.has(r.id)).concat(known);
+  }
   ensureAuthorProfiles([...new Set(list.map(r=>r.author))]).then(()=>{
     const el=document.getElementById('feedView');
     if(!onlineMode){ el.innerHTML='<div class="empty"><h3>Supabaseが未設定です</h3><p>index.html内のSUPABASE_URLを設定してください</p></div>'; return; }
-    if(!list.length){ el.innerHTML='<div class="empty"><h3>まだ公開レシピがありません</h3><p>最初のレシピを投稿してみましょう</p></div>'; return; }
-    el.innerHTML=list.map(r=>{
+    if(!list.length){ el.innerHTML=adminBar()+'<div class="empty"><h3>まだ公開レシピがありません</h3><p>最初のレシピを投稿してみましょう</p></div>'; return; }
+    el.innerHTML=adminBar()+interestBanner(q)+list.map(r=>{
       const liked=DB.currentUser && (r.likes||[]).includes(DB.currentUser);
       const saved=DB.currentUser && DB.saved.includes(r.id);
       const inMy=DB.currentUser && DB.myRecipes.some(m=>m.sourceId===r.id);
@@ -387,7 +455,7 @@ function toggleLike(id){
   requireLogin(async ()=>{
     const r=DB.recipes.find(x=>x.id===id); if(!r) return;
     const likes=(r.likes||[]).slice(); const i=likes.indexOf(DB.currentUser);
-    if(i>-1) likes.splice(i,1); else likes.push(DB.currentUser);
+    if(i>-1) likes.splice(i,1); else { likes.push(DB.currentUser); bumpTags(r.tags||[],3); }
     try{ chk(await sb.from('recipes').update({likes}).eq('id',id)); r.likes=likes; renderAll(); }
     catch(e){ console.error(e); toast('通信に失敗しました：'+errMsg(e)); }
   });
@@ -395,7 +463,7 @@ function toggleLike(id){
 function toggleSave(id){
   requireLogin(async ()=>{
     const saved=DB.saved.slice(); const i=saved.indexOf(id);
-    if(i>-1) saved.splice(i,1); else saved.push(id);
+    if(i>-1) saved.splice(i,1); else { saved.push(id); const rr=DB.recipes.find(x=>x.id===id); if(rr) bumpTags(rr.tags||[],3); }
     try{ chk(await sb.from('users').update({saved_ids:saved}).eq('id',DB.currentUserDocId)); DB.saved=saved; toast(i>-1?'保存を解除しました':'保存しました'); renderAll(); }
     catch(e){ console.error(e); toast('通信に失敗しました：'+errMsg(e)); }
   });
@@ -403,7 +471,7 @@ function toggleSave(id){
 function addToMy(id){
   requireLogin(async ()=>{
     const src=DB.recipes.find(x=>x.id===id); if(!src) return;
-    logHistory(src.tags||[]);
+    bumpTags(src.tags||[],4);
     if(DB.myRecipes.some(m=>m.sourceId===id)){ toast('すでに追加されています'); return; }
     try{
       chk(await sb.from('myrecipes').insert({owner:DB.currentUser,source_id:id,title:src.title,photo:src.photo||null,ingredients:src.ingredients||[],steps:src.steps||[],tags:src.tags||[],is_public:false,created:Date.now()}));
@@ -411,7 +479,6 @@ function addToMy(id){
     }catch(e){ console.error(e); toast('通信に失敗しました：'+errMsg(e)); }
   });
 }
-function logHistory(tags){ DB.history.push(...tags); DB.history=DB.history.slice(-60); }
 
 /* ---------- user page ---------- */
 function openUserPage(username){
@@ -419,7 +486,6 @@ function openUserPage(username){
   ['feedView','myView','mypageView'].forEach(id=>document.getElementById(id).style.display='none');
   const el=document.getElementById('userPageView'); el.style.display='';
   const list=DB.recipes.filter(r=>r.author===username);
-  logHistory(list[0]?list[0].tags||[]:[]);
   const following=DB.currentUser && DB.follows.includes(username);
   el.innerHTML=
     '<div style="padding-top:18px"><button class="linkbtn" onclick="switchTab(\'feed\')">← 公開レシピに戻る</button>'+
@@ -553,10 +619,94 @@ async function saveRecipe(){
   }catch(e){ console.error(e); toast('保存に失敗しました：'+errMsg(e)); }
 }
 
+/* ---------- 管理者：表から一括投稿（Googleスプレッドシートのコピーを貼り付け） ---------- */
+let bulkRows=[], bulkBusy=false;
+function adminBar(){
+  if(!DB.isAdmin) return '';
+  return '<div style="padding:14px 0 0"><button class="secondary" style="border-color:#E9C3B8;color:#B3432E" onclick="openBulkModal()">表から一括投稿（管理者）</button></div>';
+}
+function parseTSV(text){
+  const rows=[]; let row=[], cur='', inQ=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(inQ){
+      if(c==='"'){ if(text[i+1]==='"'){ cur+='"'; i++; } else inQ=false; }
+      else cur+=c;
+    } else if(c==='"' && cur===''){ inQ=true; }
+    else if(c==='\t'){ row.push(cur); cur=''; }
+    else if(c==='\n' || c==='\r'){
+      if(c==='\r' && text[i+1]==='\n') i++;
+      row.push(cur); cur=''; rows.push(row); row=[];
+    } else cur+=c;
+  }
+  if(cur!=='' || row.length){ row.push(cur); rows.push(row); }
+  return rows.filter(r=>r.some(c=>c.trim()!==''));
+}
+function rowToRecipe(r){
+  const title=(r[0]||'').trim();
+  const ingredients=(r[1]||'').split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  const steps=(r[2]||'').split(/\r?\n/).map(l=>l.trim().replace(/^\d+[\.\)．）]\s*/,'')).filter(Boolean);
+  const tags=(r[3]||'').split(/[,、]/).map(t=>t.trim()).filter(Boolean);
+  const missing=[];
+  if(!title) missing.push('レシピ名'); if(!ingredients.length) missing.push('材料');
+  if(!steps.length) missing.push('作り方'); if(!tags.length) missing.push('タグ');
+  return {title,ingredients,steps,tags,missing,ok:missing.length===0};
+}
+function openBulkModal(){
+  if(!DB.isAdmin) return;
+  if(!DB.currentUser){ requireLogin(()=>openBulkModal()); return; }
+  bulkRows=[];
+  showModal(
+    '<button class="mclose" onclick="closeModal()">×</button>'+
+    '<h2>表から一括投稿</h2>'+
+    '<p style="color:var(--ink-soft);font-size:13px;margin-top:-8px">「'+esc(DB.currentUser)+'」の名前で公開レシピに投稿されます。</p>'+
+    '<p style="font-size:13px;color:var(--ink-soft)">Googleスプレッドシートで、左の列から <b>レシピ名｜材料｜作り方｜タグ</b> の順に入力し、範囲を選んでコピー（Ctrl+C）→ 下に貼り付けてください。1行目の見出しはあってもなくてもOKです。材料・作り方はセル内で改行、タグは「,」か「、」で区切ります。写真は付きません（最大100件）。</p>'+
+    '<div class="field"><textarea id="bulk_text" style="min-height:110px" placeholder="ここに貼り付け" oninput="bulkPreview()"></textarea></div>'+
+    '<div id="bulk_preview"></div>'+
+    '<button class="primary" id="bulkBtn" style="margin-top:12px" onclick="submitBulk()" disabled>投稿する</button>'
+  );
+}
+function bulkPreview(){
+  let rows=parseTSV(document.getElementById('bulk_text').value);
+  if(rows.length && rows[0][0].trim()==='レシピ名') rows=rows.slice(1);
+  bulkRows=rows.slice(0,100).map(rowToRecipe);
+  const over=rows.length>100;
+  const okN=bulkRows.filter(x=>x.ok).length, ngN=bulkRows.length-okN;
+  const el=document.getElementById('bulk_preview');
+  if(!bulkRows.length){ el.innerHTML=''; document.getElementById('bulkBtn').disabled=true; document.getElementById('bulkBtn').textContent='投稿する'; return; }
+  el.innerHTML=
+    '<div style="font-size:13px;margin-bottom:6px">投稿できる行：<b>'+okN+'</b>件'+(ngN?' ／ 不足のある行（投稿されません）：<b style="color:#B3432E">'+ngN+'</b>件':'')+(over?' ／ 101件目以降は無視します':'')+'</div>'+
+    '<div style="overflow-x:auto;border:1px solid var(--line);border-radius:10px"><table style="border-collapse:collapse;font-size:12px;width:100%;min-width:520px">'+
+    '<tr style="background:var(--tag-bg);text-align:left"><th style="padding:6px 8px">#</th><th style="padding:6px 8px">レシピ名</th><th style="padding:6px 8px">材料</th><th style="padding:6px 8px">作り方</th><th style="padding:6px 8px">タグ</th></tr>'+
+    bulkRows.map((x,i)=>'<tr style="border-top:1px solid var(--line);vertical-align:top;'+(x.ok?'':'background:rgba(179,67,46,.08)')+'">'+
+      '<td style="padding:6px 8px">'+(i+1)+'</td>'+
+      '<td style="padding:6px 8px">'+esc(x.title)+(x.ok?'':'<div style="color:#B3432E">不足：'+x.missing.join('・')+'</div>')+'</td>'+
+      '<td style="padding:6px 8px">'+x.ingredients.length+'件</td>'+
+      '<td style="padding:6px 8px">'+x.steps.length+'手順</td>'+
+      '<td style="padding:6px 8px">'+esc(x.tags.join('、'))+'</td></tr>').join('')+
+    '</table></div>';
+  const b=document.getElementById('bulkBtn');
+  b.disabled=okN===0; b.textContent=okN?okN+'件を投稿する':'投稿する';
+}
+async function submitBulk(){
+  if(!DB.isAdmin || !DB.currentUser || bulkBusy) return;
+  const valid=bulkRows.filter(x=>x.ok);
+  if(!valid.length) return;
+  if(!confirm(valid.length+'件を「'+DB.currentUser+'」の名前で公開レシピに投稿しますか？')) return;
+  bulkBusy=true;
+  const now=Date.now();
+  const payload=valid.map((x,i)=>({author:DB.currentUser,title:x.title,photo:null,ingredients:x.ingredients,steps:x.steps,tags:x.tags,likes:[],created:now-i}));
+  try{
+    chk(await sb.from('recipes').insert(payload));
+    closeModal(); needRank=true; await loadRecipes(); toast(valid.length+'件を投稿しました'); renderAll();
+  }catch(e){ console.error(e); toast('一括投稿に失敗しました：'+errMsg(e)); }
+  bulkBusy=false;
+}
+
 /* ---------- detail ---------- */
 function openDetail(id){
   const r=DB.recipes.find(x=>x.id===id); if(!r) return;
-  logHistory(r.tags||[]);
+  bumpTags(r.tags||[],1);
   showModal(
     '<button class="mclose" onclick="closeModal()">×</button>'+
     '<div class="photo">'+photoContent(r)+'</div>'+
@@ -643,7 +793,11 @@ function renderAll(){
   if(currentTab==='my') renderMy();
   if(currentTab==='mypage') renderMypage();
 }
-document.getElementById('searchInput').addEventListener('input', ()=>{ if(currentTab==='feed') renderFeed(); });
+document.getElementById('searchInput').addEventListener('input', ()=>{
+  if(currentTab==='feed'){ needRank=true; renderFeed(); }
+  clearTimeout(searchTimer);
+  searchTimer=setTimeout(()=>learnFromSearch(document.getElementById('searchInput').value),1500);
+});
 document.getElementById('feedView').innerHTML='<div class="empty">読み込み中…</div>';
 initBackend();
 </script>
