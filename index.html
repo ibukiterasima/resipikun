@@ -4,8 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>スーパーレシピくん</title>
-<link rel="icon" type="image/jpeg" href="icon.jpg">
-<link rel="apple-touch-icon" href="icon.jpg">
+<link rel="icon" type="image/jpeg" href="icon.jpg?v=2">
+<link rel="shortcut icon" type="image/jpeg" href="icon.jpg?v=2">
+<link rel="apple-touch-icon" href="icon.jpg?v=2">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700;900&display=swap" rel="stylesheet">
 <!-- Firebase (無料のSparkプランで利用可) -->
@@ -37,14 +38,22 @@ header{position:sticky;top:0;background:var(--bg);z-index:20;border-bottom:1px s
 .logo{font-size:22px;letter-spacing:-0.5px;flex:1;}
 .logo span{color:var(--accent);}
 .userchip{display:flex;align-items:center;gap:6px;font-size:14px;background:var(--surface);border:1px solid var(--line);padding:6px 10px;border-radius:99px;}
-.searchrow{max-width:640px;margin:0 auto;padding:0 16px 12px;display:flex;gap:8px;}
-.searchrow input{flex:1;padding:9px 14px;border-radius:99px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:14px;}
+.searchrow{max-width:640px;margin:0 auto;padding:0 16px 12px;display:flex;gap:6px;}
+.searchrow input{flex:1;min-width:0;padding:9px 12px;border-radius:99px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:14px;}
 .searchrow input:focus{outline:2px solid var(--accent);outline-offset:-1px;}
-.addbtn{background:var(--accent);color:var(--accent-ink);border:none;border-radius:99px;padding:9px 16px;font-weight:800;font-size:14px;white-space:nowrap;}
-.bottomnav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px);z-index:30;}
+.addbtn{background:var(--accent);color:var(--accent-ink);border:none;border-radius:99px;padding:9px 14px;font-weight:800;font-size:13.5px;white-space:nowrap;flex-shrink:0;}
+@media (max-width:380px){
+  .searchrow input{font-size:13px;padding:8px 10px;}
+  .addbtn{font-size:12px;padding:8px 10px;}
+  .headrow{gap:8px;}
+  .logo{font-size:19px;}
+}
+.bottomnav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px);z-index:30;box-shadow:0 -2px 10px rgba(0,0,0,.04);}
 .bottomnav-inner{display:flex;max-width:640px;margin:0 auto;width:100%;}
-.bottomnav button{flex:1;background:none;border:none;padding:12px 4px 10px;font-size:13px;font-weight:700;color:var(--ink-soft);border-top:2px solid transparent;}
+.bottomnav button{flex:1;background:none;border:none;padding:11px 4px 9px;font-size:12.5px;font-weight:700;color:var(--ink-soft);border-top:3px solid transparent;display:flex;flex-direction:column;align-items:center;gap:3px;}
+.bottomnav button svg{width:22px;height:22px;}
 .bottomnav button.active{color:var(--accent);border-top-color:var(--accent);}
+@media (min-width:420px){ .bottomnav button{font-size:13.5px;padding:13px 4px 10px;} .bottomnav button svg{width:24px;height:24px;} }
 .feedcard{padding:22px 0;border-bottom:1px solid var(--line);}
 .author{display:flex;align-items:center;gap:9px;margin-bottom:10px;cursor:pointer;}
 .avatar{width:34px;height:34px;border-radius:50%;background:var(--tag-bg);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;}
@@ -112,8 +121,8 @@ section.panel{padding-top:20px;}
     <h1 class="logo">スーパー<span>レシピ</span>くん</h1>
     <div id="userArea"></div>
   </div>
-  <div class="searchrow">
-    <input id="searchInput" type="text" placeholder="料理名やタグで検索（例：おやつ、麺）">
+  <div class="searchrow" id="searchRow">
+    <input id="searchInput" type="text" placeholder="料理名やタグで検索">
     <button class="addbtn" id="addBtn" onclick="openAddModal()">レシピを投稿</button>
   </div>
 </header>
@@ -123,13 +132,15 @@ section.panel{padding-top:20px;}
   <div id="myView" style="display:none"></div>
   <div id="userPageView" style="display:none"></div>
   <div id="mypageView" style="display:none"></div>
+  <div id="settingsView" style="display:none"></div>
 </div>
 
 <nav class="bottomnav">
   <div class="bottomnav-inner">
-    <button data-tab="feed" class="active" onclick="switchTab('feed')">公開レシピ</button>
-    <button data-tab="my" onclick="switchTab('my')">Myレシピ</button>
-    <button data-tab="mypage" onclick="switchTab('mypage')">マイページ</button>
+    <button data-tab="feed" class="active" onclick="switchTab('feed')"><span class="navicon" data-icon="feed"></span>公開レシピ</button>
+    <button data-tab="my" onclick="switchTab('my')"><span class="navicon" data-icon="my"></span>Myレシピ</button>
+    <button data-tab="mypage" onclick="switchTab('mypage')"><span class="navicon" data-icon="mypage"></span>マイページ</button>
+    <button data-tab="settings" id="navSettings" style="display:none" onclick="switchTab('settings')"><span class="navicon" data-icon="settings"></span>設定</button>
   </div>
 </nav>
 
@@ -145,6 +156,12 @@ const SUPABASE_KEY='sb_publishable_FJgW8nh-9PLw7_NOROzKaw_OF5g1iX-';
 
 const ICON_DISH='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="11" r="7.2"/><path d="M6.2 15.5c1.4 1.5 3.6 2.4 5.8 2.4s4.4-.9 5.8-2.4" stroke-linecap="round"/><path d="M4 20h16" stroke-linecap="round"/></svg>';
 const ICON_PERSON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c0-3.6 3.1-6.5 7-6.5s7 2.9 7 6.5" stroke-linecap="round"/></svg>';
+const NAV_ICONS={
+  feed:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3.5" y="4" width="17" height="16" rx="2.5"/><path d="M7.5 9h9M7.5 13h9M7.5 17h5.5" stroke-linecap="round"/></svg>',
+  my:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3.5h12v17l-6-4-6 4v-17z" stroke-linejoin="round"/></svg>',
+  mypage:ICON_PERSON,
+  settings:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M12 3.5v2.2M12 18.3v2.2M20.5 12h-2.2M5.7 12H3.5M17.7 6.3l-1.5 1.5M7.8 16.2l-1.5 1.5M17.7 17.7l-1.5-1.5M7.8 7.8L6.3 6.3" stroke-linecap="round"/></svg>'
+};
 
 const SESSION_KEY='src_session_v1';
 const ADMIN_KEY='src_admin_v1';
@@ -153,6 +170,9 @@ let DB={ recipes:[], myRecipes:[], saved:[], follows:[], users:{}, currentUser:n
 let sb=null, onlineMode=false;
 let currentTab='feed', viewedUser=null;
 let pendingCallback=null, pendingEmail=null, editingId=null, tempPhoto=null, tempProfilePhoto=undefined;
+let bulkMode='public';
+let followSearchResults=[], followSearchTimer=null;
+let adminUsers=null;
 
 function toast(msg){
   const t=document.getElementById('toast');
@@ -228,7 +248,10 @@ function applyUserRow(row){
 async function resumeSession(username){
   try{
     const rows=chk(await sb.from('users').select('*').eq('username',username).limit(1));
-    if(rows.length){ applyUserRow(rows[0]); await refreshMyRecipes(); }
+    if(rows.length){
+      if(rows[0].suspended){ try{ localStorage.removeItem(SESSION_KEY); }catch(e){} return; }
+      applyUserRow(rows[0]); await refreshMyRecipes();
+    }
   }catch(e){ console.error(e); }
 }
 async function refreshMyRecipes(){
@@ -271,6 +294,7 @@ async function submitEmail(){
   try{
     const rows=chk(await sb.from('users').select('*').eq('email',email).limit(1));
     if(rows.length){
+      if(rows[0].suspended){ toast('このアカウントは停止されています'); return; }
       applyUserRow(rows[0]);
       try{ localStorage.setItem(SESSION_KEY,rows[0].username); }catch(e){}
       await refreshMyRecipes();
@@ -347,19 +371,25 @@ function renderUserArea(){
     html+='<button class="secondary" style="width:auto;padding:8px 12px;font-size:12px;margin-left:6px;color:#B3432E;border-color:#E9C3B8" onclick="adminLogout()">管理者解除</button>';
   }
   el.innerHTML=html;
+  const navS=document.getElementById('navSettings');
+  if(navS) navS.style.display=DB.isAdmin?'':'none';
 }
 function updateAddBtn(){ document.getElementById('addBtn').textContent = currentTab==='feed' ? 'レシピを投稿' : '＋ 追加'; }
 function switchTab(tab){
   if((tab==='my'||tab==='mypage') && !DB.currentUser){ requireLogin(()=>switchTab(tab)); return; }
+  if(tab==='settings' && !DB.isAdmin) return;
   currentTab=tab; viewedUser=null;
   document.querySelectorAll('.bottomnav button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
   document.getElementById('feedView').style.display = tab==='feed' ? '' : 'none';
   document.getElementById('myView').style.display = tab==='my' ? '' : 'none';
   document.getElementById('userPageView').style.display='none';
   document.getElementById('mypageView').style.display = tab==='mypage' ? '' : 'none';
+  document.getElementById('settingsView').style.display = tab==='settings' ? '' : 'none';
+  document.getElementById('searchRow').style.display = (tab==='mypage'||tab==='settings') ? 'none' : '';
   updateAddBtn();
   if(tab==='my') refreshMyRecipes().then(renderMy);
   if(tab==='feed'){ needRank=true; loadRecipes(); }
+  if(tab==='settings') loadAdminUsers();
   renderAll();
 }
 
@@ -434,7 +464,7 @@ function renderFeed(){
     const el=document.getElementById('feedView');
     if(!onlineMode){ el.innerHTML='<div class="empty"><h3>Supabaseが未設定です</h3><p>index.html内のSUPABASE_URLを設定してください</p></div>'; return; }
     if(!list.length){ el.innerHTML=adminBar()+'<div class="empty"><h3>まだ公開レシピがありません</h3><p>最初のレシピを投稿してみましょう</p></div>'; return; }
-    el.innerHTML=adminBar()+interestBanner(q)+list.map(r=>{
+    el.innerHTML=adminBar('public')+interestBanner(q)+list.map(r=>{
       const liked=DB.currentUser && (r.likes||[]).includes(DB.currentUser);
       const saved=DB.currentUser && DB.saved.includes(r.id);
       const inMy=DB.currentUser && DB.myRecipes.some(m=>m.sourceId===r.id);
@@ -514,10 +544,10 @@ function toggleFollow(username){
 function renderMy(){
   const el=document.getElementById('myView');
   if(!DB.currentUser){ el.innerHTML=''; return; }
-  el.innerHTML = DB.myRecipes.length ? '<div class="mygrid">'+DB.myRecipes.map(m=>
+  el.innerHTML = adminBar('my') + (DB.myRecipes.length ? '<div class="mygrid">'+DB.myRecipes.map(m=>
     '<div class="mycard" onclick="openMyDetail(\''+m.id+'\')"><div class="photo">'+photoContent(m)+'</div>'+
     '<div class="body"><b>'+m.title+'</b>'+(m.isPublic?'<span class="pub">公開中</span>':'')+'</div></div>').join('')+'</div>'
-  : '<div class="empty"><h3>Myレシピはまだありません</h3><p>「＋ 追加」から自分のレシピを作りましょう</p></div>';
+  : '<div class="empty"><h3>Myレシピはまだありません</h3><p>「＋ 追加」から自分のレシピを作りましょう</p></div>');
 }
 function openMyDetail(id){
   const m=DB.myRecipes.find(x=>x.id===id); if(!m) return;
@@ -623,9 +653,10 @@ async function saveRecipe(){
 
 /* ---------- 管理者：表から一括投稿（Googleスプレッドシートのコピーを貼り付け） ---------- */
 let bulkRows=[], bulkBusy=false;
-function adminBar(){
+function adminBar(mode){
   if(!DB.isAdmin) return '';
-  return '<div style="padding:14px 0 0"><button class="secondary" style="border-color:#E9C3B8;color:#B3432E" onclick="openBulkModal()">表から一括投稿（管理者）</button></div>';
+  const label = mode==='my' ? '表からMyレシピに一括追加（管理者）' : '表から一括投稿（管理者）';
+  return '<div style="padding:14px 0 0"><button class="secondary" style="border-color:#E9C3B8;color:#B3432E" onclick="openBulkModal(\''+mode+'\')">'+label+'</button></div>';
 }
 function parseTSV(text){
   const rows=[]; let row=[], cur='', inQ=false;
@@ -654,14 +685,16 @@ function rowToRecipe(r){
   if(!steps.length) missing.push('作り方'); if(!tags.length) missing.push('タグ');
   return {title,ingredients,steps,tags,missing,ok:missing.length===0};
 }
-function openBulkModal(){
+function openBulkModal(mode){
   if(!DB.isAdmin) return;
-  if(!DB.currentUser){ requireLogin(()=>openBulkModal()); return; }
+  bulkMode = mode==='my' ? 'my' : 'public';
+  if(!DB.currentUser){ requireLogin(()=>openBulkModal(bulkMode)); return; }
   bulkRows=[];
+  const dest = bulkMode==='my' ? '「'+esc(DB.currentUser)+'」のMyレシピに、非公開で追加されます。' : '「'+esc(DB.currentUser)+'」の名前で公開レシピに投稿されます。';
   showModal(
     '<button class="mclose" onclick="closeModal()">×</button>'+
-    '<h2>表から一括投稿</h2>'+
-    '<p style="color:var(--ink-soft);font-size:13px;margin-top:-8px">「'+esc(DB.currentUser)+'」の名前で公開レシピに投稿されます。</p>'+
+    '<h2>'+(bulkMode==='my'?'表からMyレシピに一括追加':'表から一括投稿')+'</h2>'+
+    '<p style="color:var(--ink-soft);font-size:13px;margin-top:-8px">'+dest+'</p>'+
     '<p style="font-size:13px;color:var(--ink-soft)">Googleスプレッドシートで、左の列から <b>レシピ名｜材料｜作り方｜タグ</b> の順に入力し、範囲を選んでコピー（Ctrl+C）→ 下に貼り付けてください。1行目の見出しはあってもなくてもOKです。材料・作り方はセル内で改行、タグは「,」か「、」で区切ります。写真は付きません（最大100件）。</p>'+
     '<div class="field"><textarea id="bulk_text" style="min-height:110px" placeholder="ここに貼り付け" oninput="bulkPreview()"></textarea></div>'+
     '<div id="bulk_preview"></div>'+
@@ -694,13 +727,20 @@ async function submitBulk(){
   if(!DB.isAdmin || !DB.currentUser || bulkBusy) return;
   const valid=bulkRows.filter(x=>x.ok);
   if(!valid.length) return;
-  if(!confirm(valid.length+'件を「'+DB.currentUser+'」の名前で公開レシピに投稿しますか？')) return;
+  const dest = bulkMode==='my' ? 'Myレシピ（非公開）に追加' : '公開レシピに投稿';
+  if(!confirm(valid.length+'件を「'+DB.currentUser+'」の名前で'+dest+'しますか？')) return;
   bulkBusy=true;
   const now=Date.now();
-  const payload=valid.map((x,i)=>({author:DB.currentUser,title:x.title,photo:null,ingredients:x.ingredients,steps:x.steps,tags:x.tags,likes:[],created:now-i}));
   try{
-    chk(await sb.from('recipes').insert(payload));
-    closeModal(); needRank=true; await loadRecipes(); toast(valid.length+'件を投稿しました'); renderAll();
+    if(bulkMode==='my'){
+      const payload=valid.map((x,i)=>({owner:DB.currentUser,source_id:null,title:x.title,photo:null,ingredients:x.ingredients,steps:x.steps,tags:x.tags,is_public:false,created:now-i}));
+      chk(await sb.from('myrecipes').insert(payload));
+      closeModal(); await refreshMyRecipes(); toast(valid.length+'件をMyレシピに追加しました'); renderAll();
+    } else {
+      const payload=valid.map((x,i)=>({author:DB.currentUser,title:x.title,photo:null,ingredients:x.ingredients,steps:x.steps,tags:x.tags,likes:[],created:now-i}));
+      chk(await sb.from('recipes').insert(payload));
+      closeModal(); needRank=true; await loadRecipes(); toast(valid.length+'件を投稿しました'); renderAll();
+    }
   }catch(e){ console.error(e); toast('一括投稿に失敗しました：'+errMsg(e)); }
   bulkBusy=false;
 }
@@ -721,6 +761,44 @@ function openDetail(id){
   );
 }
 
+/* ---------- 管理者：設定（アカウント停止） ---------- */
+async function loadAdminUsers(){
+  if(!DB.isAdmin) return;
+  document.getElementById('settingsView').innerHTML='<div class="empty">読み込み中…</div>';
+  try{
+    adminUsers=chk(await sb.from('users').select('id,username,email,suspended').order('username'));
+  }catch(e){ console.error(e); adminUsers=[]; toast('読み込みに失敗しました：'+errMsg(e)); }
+  renderSettings();
+}
+function renderSettings(){
+  const el=document.getElementById('settingsView');
+  if(!DB.isAdmin){ el.innerHTML=''; return; }
+  if(adminUsers===null){ el.innerHTML='<div class="empty">読み込み中…</div>'; return; }
+  const q=(document.getElementById('adminUserSearch')?document.getElementById('adminUserSearch').value:'').trim();
+  const list = q ? adminUsers.filter(u=>u.username.includes(q)||(u.email||'').includes(q)) : adminUsers;
+  el.innerHTML=
+    '<div class="panel"><h3 style="font-size:16px;margin-bottom:14px">設定（管理者）</h3>'+
+    '<div class="field"><label>ユーザーを検索</label><input id="adminUserSearch" type="text" placeholder="ユーザー名・メールアドレス" oninput="renderSettings()" value="'+esc(q)+'"></div>'+
+    '<div class="msection"><h3>アカウント一覧（'+adminUsers.length+'）</h3>'+
+    (list.length ? list.map(u=>
+      '<div class="feedcard" style="padding:12px 0;display:flex;align-items:center;gap:10px">'+
+        '<div style="flex:1"><b style="font-size:14.5px">'+esc(u.username)+'</b>'+(u.suspended?'<span style="color:#B3432E;font-size:12px;margin-left:6px">停止中</span>':'')+
+        '<div style="color:var(--ink-soft);font-size:12.5px">'+esc(u.email||'')+'</div></div>'+
+        '<button class="smallbtn" style="'+(u.suspended?'':'color:#B3432E')+'" onclick="adminToggleSuspend(\''+u.id+'\','+(!!u.suspended)+')">'+(u.suspended?'停止解除':'停止')+'</button>'+
+      '</div>'
+    ).join('') : '<p style="color:var(--ink-soft);font-size:13.5px">該当するアカウントがありません</p>')+
+    '</div></div>';
+}
+async function adminToggleSuspend(id,current){
+  const next=!current;
+  if(!confirm(next?'このアカウントを停止しますか？':'このアカウントの停止を解除しますか？')) return;
+  try{
+    chk(await sb.from('users').update({suspended:next}).eq('id',id));
+    const u=adminUsers.find(x=>x.id===id); if(u) u.suspended=next;
+    toast(next?'停止しました':'停止を解除しました'); renderSettings();
+  }catch(e){ console.error(e); toast('更新に失敗しました：'+errMsg(e)); }
+}
+
 /* ---------- mypage ---------- */
 function renderMypage(){
   const el=document.getElementById('mypageView');
@@ -736,12 +814,47 @@ function renderMypage(){
     '<div class="field"><label>ひとこと</label><input id="mp_bio" type="text" value="'+(u.bio||'')+'" placeholder="自己紹介"></div>'+
     '<button class="secondary" onclick="saveProfile()">プロフィールを保存</button>'+
     '<button class="secondary danger" style="margin-top:10px" onclick="logout()">ログアウト</button>'+
-    '<div class="msection" style="margin-top:28px"><h3>フォロー中のユーザー（'+DB.follows.length+'）</h3><div class="followlist">'+
+    '<div class="msection" style="margin-top:28px"><h3>ユーザーを探してフォロー</h3>'+
+      '<div class="field" style="margin-bottom:8px"><input id="followSearchInput" type="text" placeholder="ユーザー名で検索" oninput="onFollowSearchInput()"></div>'+
+      '<div id="followSearchResults"></div></div>'+
+    '<div class="msection"><h3>フォロー中のユーザー（'+DB.follows.length+'）</h3><div class="followlist">'+
       (DB.follows.length? DB.follows.map(f=>'<span onclick="switchTab(\'feed\');openUserPage(\''+f+'\')" style="cursor:pointer">'+f+'</span>').join('') : '<span style="color:var(--ink-soft);background:none;padding:0">まだいません</span>')+'</div></div>'+
     '<div class="msection"><h3>保存したレシピ（'+savedRecipes.length+'）</h3>'+
       (savedRecipes.length? savedRecipes.map(r=>row(r)+'</div></div>').join('') : '<p style="color:var(--ink-soft);font-size:13.5px">まだ保存したレシピはありません</p>')+'</div>'+
     '<div class="msection"><h3>公開したレシピ（'+mine.length+'）</h3>'+
       (mine.length? mine.map(r=>row(r)+'<button class="smallbtn" onclick="deletePublished(\''+r.id+'\')">削除</button></div></div>').join('') : '<p style="color:var(--ink-soft);font-size:13.5px">まだ公開レシピはありません</p>')+'</div></div>';
+}
+function onFollowSearchInput(){
+  clearTimeout(followSearchTimer);
+  const q=document.getElementById('followSearchInput').value.trim();
+  const el=document.getElementById('followSearchResults');
+  if(!q){ el.innerHTML=''; return; }
+  followSearchTimer=setTimeout(async ()=>{
+    try{
+      const rows=chk(await sb.from('users').select('username').ilike('username','%'+q+'%').limit(8));
+      followSearchResults=rows.map(r=>r.username).filter(n=>n!==DB.currentUser);
+      renderFollowSearchResults();
+    }catch(e){ console.error(e); }
+  },350);
+}
+function renderFollowSearchResults(){
+  const el=document.getElementById('followSearchResults'); if(!el) return;
+  if(!followSearchResults.length){ el.innerHTML='<p style="color:var(--ink-soft);font-size:13px">該当するユーザーが見つかりません</p>'; return; }
+  el.innerHTML=followSearchResults.map(name=>{
+    const on=DB.follows.includes(name);
+    return '<div class="feedcard" style="padding:10px 0;display:flex;align-items:center;gap:10px">'+
+      '<div class="avatar" style="width:30px;height:30px">'+avatarContent(name)+'</div>'+
+      '<b style="flex:1;font-size:14px;cursor:pointer" onclick="switchTab(\'feed\');openUserPage(\''+name+'\')">'+esc(name)+'</b>'+
+      '<button class="followbtn '+(on?'on':'')+'" style="margin-left:0" onclick="toggleFollowFromSearch(\''+name+'\')">'+(on?'フォロー中':'フォロー')+'</button></div>';
+  }).join('');
+}
+function toggleFollowFromSearch(username){
+  requireLogin(async ()=>{
+    const follows=DB.follows.slice(); const i=follows.indexOf(username);
+    if(i>-1) follows.splice(i,1); else follows.push(username);
+    try{ chk(await sb.from('users').update({follows}).eq('id',DB.currentUserDocId)); DB.follows=follows; renderMypage(); onFollowSearchInput.lastQ=null; document.getElementById('followSearchInput') && (document.getElementById('followSearchInput').value=username); renderFollowSearchResults(); }
+    catch(e){ console.error(e); toast('通信に失敗しました：'+errMsg(e)); }
+  });
 }
 function onProfilePhotoPicked(e){
   const file=e.target.files[0]; if(!file) return;
@@ -794,6 +907,7 @@ function renderAll(){
   if(currentTab==='feed' && !viewedUser) renderFeed();
   if(currentTab==='my') renderMy();
   if(currentTab==='mypage') renderMypage();
+  if(currentTab==='settings') renderSettings();
 }
 document.getElementById('searchInput').addEventListener('input', ()=>{
   if(currentTab==='feed'){ needRank=true; renderFeed(); }
@@ -801,6 +915,7 @@ document.getElementById('searchInput').addEventListener('input', ()=>{
   searchTimer=setTimeout(()=>learnFromSearch(document.getElementById('searchInput').value),1500);
 });
 document.getElementById('feedView').innerHTML='<div class="empty">読み込み中…</div>';
+document.querySelectorAll('.navicon').forEach(el=>{ el.innerHTML=NAV_ICONS[el.dataset.icon]||''; });
 initBackend();
 </script>
 </body>
