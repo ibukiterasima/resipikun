@@ -542,25 +542,21 @@ async function translateRecipe(r,full){
   if(LANG==='ja') return r;
   const key=r.id+'|'+LANG+(full?'':'|lite');
   if(translationCache[key]) return translationCache[key];
-  const SEP=' @@ ';
+  const arr=(list)=>Promise.all((list||[]).map(x=>translateOne(x,LANG)));
   try{
     if(!full){
-      const [title,tags]=await Promise.all([ translateOne(r.title,LANG), translateOne((r.tags||[]).join(SEP),LANG) ]);
-      const tagsArr=tags.split(SEP).map(x=>x.trim()).filter(Boolean);
-      const out={title, tags: tagsArr.length===(r.tags||[]).length?tagsArr:(r.tags||[]), ingredients:r.ingredients, steps:r.steps};
+      const [title,tags]=await Promise.all([ translateOne(r.title,LANG), arr(r.tags) ]);
+      const out={title, tags, ingredients:r.ingredients, steps:r.steps};
       translationCache[key]=out;
       return out;
     }
-    const [title,ingr,steps,tags]=await Promise.all([
+    const [title,ingredients,steps,tags]=await Promise.all([
       translateOne(r.title,LANG),
-      translateOne((r.ingredients||[]).join(SEP),LANG),
-      translateOne((r.steps||[]).join(SEP),LANG),
-      translateOne((r.tags||[]).join(SEP),LANG)
+      arr(r.ingredients),
+      arr(r.steps),
+      arr(r.tags)
     ]);
-    const out={title,ingredients:ingr.split(SEP).map(x=>x.trim()).filter(Boolean),steps:steps.split(SEP).map(x=>x.trim()).filter(Boolean),tags:tags.split(SEP).map(x=>x.trim()).filter(Boolean)};
-    if(out.ingredients.length!==(r.ingredients||[]).length) out.ingredients=r.ingredients;
-    if(out.steps.length!==(r.steps||[]).length) out.steps=r.steps;
-    if(out.tags.length!==(r.tags||[]).length) out.tags=r.tags;
+    const out={title,ingredients,steps,tags};
     translationCache[key]=out;
     return out;
   }catch(e){ console.warn(e); return r; }
